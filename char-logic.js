@@ -1,3 +1,194 @@
+        class Character {
+            constructor(id, x, y, type, isCPU, controls, pName) {
+                this.id = id; this.name = pName || (id + "P"); this.type = (type === 'random') ? getRandomCharObj() : type; this.isCPU = isCPU; this.color = colors[this.type]; this.controls = controls;
+                Object.keys(colors).forEach(k => { this['is' + k.charAt(0).toUpperCase() + k.slice(1)] = (this.type === k); });
+
+                this.w = (this.isNinja || this.isPink || this.isDrone || this.isOrbit || this.isSpark || this.isSlime || this.isCursor || this.isEvo_slim) ? 26 : (this.isTitan || this.isQuake || this.isBurst || this.isSizer || this.isTurtle) ? 42 : 34;
+                this.h = (this.isNinja || this.isPink || this.isDrone || this.isOrbit || this.isSpark || this.isSlime || this.isCursor || this.isEvo_slim) ? 38 : (this.isTitan || this.isQuake || this.isBurst || this.isSizer || this.isTurtle) ? 58 : 48;
+                this.weight = (this.isNinja || this.isPink) ? 1.4 : (this.isTitan || this.isQuake) ? 0.55 : (this.isTurtle) ? 0 : 1.0;
+                
+                // Dancerは能力3倍
+                this.moveSpeed = (this.isNinja || this.isPink) ? 1.1 : (this.isTitan || this.isQuake) ? 0.5 : (this.isTurtle) ? 0.2 : (this.isTimeslip) ? 1.6 : (this.isDancer) ? 2.4 : 0.8;
+                this.jumpPower = (this.isNinja || this.isPink) ? -17 : (this.isTitan || this.isQuake) ? -13 : (this.isTurtle) ? -5 : (this.isDancer) ? -35 : -15;
+                this.gravity = (this.isNinja || this.isPink) ? 0.6 : (this.isTitan || this.isQuake) ? 0.5 : (this.isDancer) ? 2.1 : 0.7;
+
+                this.baseMoveSpeed = this.moveSpeed; this.baseJumpPower = this.jumpPower; this.baseGravity = this.gravity; this.baseW = this.w; this.baseH = this.h;
+                this.x = x; this.y = y; this.dx = 0; this.dy = 0;
+                const mVal = isOnlineMode ? parseInt(document.getElementById('online-mode-val').value) : parseInt(document.getElementById('mode-val').value);
+                this.dmg = 0; this.stocks = mVal; this.hp = mVal;
+                
+                this.score = 0; this.dir = (id === 1) ? 1 : -1; this.grounded = false; this.cd = 0; this.charge = 0;
+                this.isAtk = false; this.respawnTimer = 0; this.dashTimer = 0; this.ninjaAtkCount = 0; this.jumpCount = 0;
+                this.shieldTimer = 0; this.shieldActive = 0; this.grabbedTarget = null; this.grabTimer = 0; this.isGrabbed = false; this.justGrabbed = 0;
+                this.escapeMashingCount = 0; this.prevAttackKey = false; this.thunderCharge = 0; this.hasBoomerang = true;
+                this.stunTimer = 0; this.speedTimer = 0; this.jumpTimer = 0; this.gravityTimer = 0; this.burnTimer = 0;
+                this.mirrorTimer = 0; this.meteorActive = false; this.drillTimer = 0; this.batteryCharge = 0; this.buriedTimer = 0; this.quakeCharge = 0;
+                this.invTimer = 60; this.uiThiefTimer = 0; this.flipTimer = 0; this.magnetTimer = 0; this.magnetDir = 1; this.bombTimer = 0; this.zombieTimer = 0;
+                this.history = []; this.inputQueue = []; this.isZombieActive = false; this.vampireCurseTimer = 0;
+                this.timeStopCd = 600; this.timeStopTimer = 0;
+                
+                // Dancer Barrier
+                this.hasDancerBarrier = this.isDancer ? true : false;
+                this.dancerBarrierTimer = 300;
+            }
+
+            update() {
+                if (this.respawnTimer > 0) { if (--this.respawnTimer === 1) this.spawn(); return; }
+                if (!gameActive && !isCountingDown) return;
+
+                if (this.isDancer && !this.hasDancerBarrier) {
+                    this.dancerBarrierTimer--;
+                    if (this.dancerBarrierTimer <= 0) {
+                        this.hasDancerBarrier = true;
+                        this.dancerBarrierTimer = 300;
+                        for(let i=0; i<10; i++) particles.push({ x: this.x+this.w/2, y: this.y+this.h/2, dx: (Math.random()-0.5)*10, dy: (Math.random()-0.5)*10, life: 20, c: "#f472b6" });
+                    }
+                }
+
+                if (this.isTimeslip && gameActive && !isCountingDown) {
+                    if (this.timeStopCd > 0) { this.timeStopCd--; } 
+                    else {
+                        this.timeStopCd = 600; const t = players.find(p => p.id !== this.id);
+                        if (t) { t.timeStopTimer = 180; for(let i=0; i<30; i++) particles.push({ x: t.x+t.w/2, y: t.y+t.h/2, dx: (Math.random()-0.5)*30, dy: (Math.random()-0.5)*30, life: 60, c: "#0f766e" }); }
+                        globalTimeStopTimer = 180; globalTimeStopperId = this.id;
+                    }
+                }
+
+                if (this.timeStopTimer > 0) {
+                    this.timeStopTimer--;
+                    if (frameCount % 5 === 0) particles.push({ x: this.x + Math.random()*this.w, y: this.y + Math.random()*this.h, dx: 0, dy: 0, life: 10, c: "#0f766e" });
+                    this.dx = 0; this.dy = 0;
+                    return;
+                }
+
+                if (this.isTimeslip) { this.history.push({x: this.x, y: this.y, hp: this.hp, dmg: this.dmg}); if (this.history.length > 300) this.history.shift(); }
+                if (this.isLagger) { this.inputQueue.push({...keys}); if (this.inputQueue.length > 6) this.inputQueue.shift(); }
+
+                if (this.invTimer > 0) this.invTimer--;
+                if (this.uiThiefTimer > 0) this.uiThiefTimer--;
+                if (this.flipTimer > 0) this.flipTimer--;
+                if (this.zombieTimer > 0) { this.zombieTimer--; if (this.zombieTimer === 0) this.die(true); }
+
+                if (this.vampireCurseTimer > 0) {
+                    this.vampireCurseTimer--;
+                    if (this.vampireCurseTimer % 30 === 0) {
+                        if (config.mode === 'hp') { this.hp--; if(this.hp<=0) this.die(); } else this.dmg++;
+                        particles.push({ x: this.x + Math.random()*this.w, y: this.y + Math.random()*this.h, dx: 0, dy: -2, life: 20, c: "#991b1b" });
+                    }
+                }
+
+                if (this.isVampire && frameCount % 30 === 0) { if (config.mode === 'hp') { this.hp -= 1; if(this.hp<=0) this.die(); } else this.dmg += 1; }
+
+                if (this.bombTimer > 0) {
+                    this.bombTimer--;
+                    if (this.bombTimer === 0) {
+                        burstEffects.push({ x: this.x+this.w/2, y: this.y+this.h/2, timer: 40, color: "#f00" });
+                        const t = players.find(p=>p.id!==this.id); if (Math.hypot(t.x-this.x, t.y-this.y) < 150) this.hit(t, 50, 2.0);
+                        if (config.mode === 'hp') { this.hp -= 50; if(this.hp<=0) this.die(); } else this.dmg += 50;
+                    }
+                }
+
+                if (this.buriedTimer > 0) { this.buriedTimer--; this.dx = 0; this.dy = 0; } 
+                else if (this.stunTimer > 0) { this.stunTimer--; } 
+                else {
+                    if (this.speedTimer > 0) { this.speedTimer--; this.moveSpeed = this.baseMoveSpeed * 0.5; } else this.moveSpeed = this.baseMoveSpeed;
+                    if (this.jumpTimer > 0) { this.jumpTimer--; this.jumpPower = this.baseJumpPower * 0.5; } else this.jumpPower = this.baseJumpPower;
+                    if (this.gravityTimer > 0) { this.gravityTimer--; this.gravity = this.baseGravity * 2.5; } else this.gravity = this.baseGravity;
+                    if (this.burnTimer > 0) { this.burnTimer--; if (this.burnTimer % 30 === 0) { if (config.mode === 'hp') { this.hp--; if(this.hp<=0) this.die(); } else this.dmg++; this.dx += (Math.random() < 0.5 ? -1 : 1) * 3; this.dy -= 2; } }
+                    if (this.magnetTimer > 0) { this.magnetTimer--; const t = players.find(p=>p.id!==this.id); if(t) { this.dx += (t.x > this.x ? this.magnetDir : -this.magnetDir) * 0.5; } }
+                    if (this.mirrorTimer > 0) this.mirrorTimer--;
+                    if (this.isBattery && !this.isAtk && this.cd === 0 && this.batteryCharge < 150) { if (frameCount % 3 === 0) this.batteryCharge++; }
+
+                    if (this.isGrabbed) {
+                        let reqMashes = 10; const grabber = players.find(p => p.grabbedTarget === this);
+                        if (grabber) { let tv = config.mode === 'hp' ? (this.hp + grabber.hp) : (this.dmg + grabber.dmg); if (tv < 50) reqMashes = 10; else if (tv < 100) reqMashes = 7; else if (tv < 150) reqMashes = 5; else if (tv < 200) reqMashes = 3; else reqMashes = 2; }
+                        const atkKey = keys[this.controls.attack] || keys['Digit1'] || keys['Numpad1'];
+                        if (!this.isCPU) { if (atkKey && !this.prevAttackKey) { this.escapeMashingCount++; particles.push({ x: this.x+this.w/2, y: this.y+this.h/2, dx: (Math.random()-0.5)*10, dy: (Math.random()-0.5)*10, life: 10, c: "#fff" }); if (this.escapeMashingCount >= reqMashes) this.escapeGrab(); } this.prevAttackKey = atkKey; } 
+                        else { if (Math.random() < 0.15) { this.escapeMashingCount++; particles.push({ x: this.x+this.w/2, y: this.y+this.h/2, dx: (Math.random()-0.5)*10, dy: (Math.random()-0.5)*10, life: 10, c: "#fff" }); if (this.escapeMashingCount >= reqMashes) this.escapeGrab(); } }
+                        if (this.x < -150 || this.x > canvas.width + 150 || this.y < -200 || this.y > canvas.height + 150) this.die(); return;
+                    } else { if (!this.isCPU) this.prevAttackKey = keys[this.controls.attack] || keys['Digit1'] || keys['Numpad1']; }
+
+                    if (this.grabbedTarget) { this.grabbedTarget.x = this.x + (this.dir === 1 ? this.w : -this.grabbedTarget.w); this.grabbedTarget.y = this.y; this.grabbedTarget.dx = 0; this.grabbedTarget.dy = 0; this.grabbedTarget.dir = -this.dir; this.grabTimer--; if (this.justGrabbed > 0) this.justGrabbed--; if (this.grabTimer <= 0) this.executeThrow(); }
+                    if (this.isTimebomb && this.bombTimer === 0) this.bombTimer = 600;
+                    if (this.isTimebomb) { const t=players.find(p=>p.id!==this.id); if(t && Math.hypot(t.x-this.x, t.y-this.y)<40 && t.invTimer===0) { t.bombTimer = this.bombTimer; this.bombTimer = 0; } }
+
+                    if (!isCountingDown) { if (this.isCPU) this.aiLogic(); else if (isOnlineMode) { if ((isHost && this.id === 1) || (!isHost && this.id === 2)) this.handleInput(); } else this.handleInput(); }
+                }
+
+                if (this.buriedTimer === 0) { this.dy += this.gravity * globalGravityModifier; this.dx *= 0.85; this.x += this.dx; this.y += this.dy; this.grounded = false; }
+                
+                [...platforms, ...bombs, ...painterBlocks].forEach(p => {
+                    const isFalling = keys[this.controls.down]; const canPass = p.h < 10 || p.owner !== undefined; 
+                    if (this.dy >= 0 && this.y + this.h <= p.y + 12 && this.y + this.h + this.dy >= p.y && this.x + this.w > p.x && this.x < p.x + p.w) {
+                        if (!canPass || !isFalling) { this.y = p.y - this.h; this.dy = 0; this.grounded = true; this.ninjaAtkCount = 0; this.jumpCount = 0; }
+                    }
+                });
+
+                if (this.isIceRun && this.grounded && Math.abs(this.dx)>1 && frameCount%5===0) iceAreas.push({x: this.x, y: this.y+this.h-5, w: this.w, h: 5, life: 180});
+                let onIce = false; iceAreas.forEach(a => { if (this.x < a.x+a.w && this.x+this.w > a.x && this.y+this.h >= a.y && this.y+this.h <= a.y+a.h) onIce = true; });
+                if (onIce) this.dx *= 1.1;
+
+                if (this.meteorActive) { this.isAtk = true; const t = players.find(p => p.id !== this.id); if (t && this.x < t.x + t.w && this.x + this.w > t.x && this.y < t.y + t.h && this.y + this.h > t.y) { this.hit(t, 20, 2.0, 0, 1.5); this.meteorActive = false; this.dy = -10; if (t.grounded && t.invTimer === 0) { t.buriedTimer = 42; t.y = t.y + 10; } } if (this.grounded) { this.meteorActive = false; for(let i=0;i<10;i++) particles.push({ x: this.x+this.w/2, y: this.y+this.h, dx: (Math.random()-0.5)*15, dy: -Math.random()*10, life: 20, c: "#991b1b" }); } }
+                if (this.drillTimer > 0) { this.drillTimer--; this.isAtk = true; if (this.drillTimer % 5 === 0) { const t = players.find(p => p.id !== this.id); if (t) { const reach=120; const hX=(this.dir===1)?this.x+this.w:this.x-reach; if(hX < t.x+t.w && hX+reach > t.x && this.y - 40 < t.y+t.h && this.y+this.h + 40 > t.y) this.hit(t, 3, 0.2); } } }
+                if (this.shieldTimer > 0) { this.shieldTimer--; if (this.shieldTimer === 0) this.shieldActive = 18; }
+                if (this.shieldActive > 0) this.shieldActive--;
+
+                if (this.type === 'laser' && this.charge > 0 && !isCountingDown) { if (++this.charge >= 100) { this.fireLaser(); this.charge = 0; this.cd = 60; } }
+                if (this.thunderCharge > 0 && !isCountingDown) { this.thunderCharge--; this.isAtk = true; if (this.thunderCharge % 5 === 0) particles.push({ x: this.x + Math.random() * this.w, y: this.y + Math.random() * this.h, dx: (Math.random()-0.5)*5, dy: (Math.random()-0.5)*5, life: 15, c: "#fef08a" }); if (this.thunderCharge === 0) { this.fireThunder(); setTimeout(() => this.isAtk = false, 150); } }
+                if (this.quakeCharge > 0 && !isCountingDown) { this.quakeCharge--; this.isAtk = true; if (this.quakeCharge === 0) { this.fireQuake(); setTimeout(() => this.isAtk = false, 150); } }
+
+                if (this.dashTimer > 0) this.dashTimer--;
+                if (this.cd > 0) this.cd--;
+                if (this.x < -150 || this.x > canvas.width + 150 || this.y < -200 || this.y > canvas.height + 150) this.die();
+            }
+
+            handleInput() {
+                let k = keys; if (this.isLagger && this.inputQueue.length > 0) k = this.inputQueue[0];
+                let l = k[this.controls.left], r = k[this.controls.right]; if (this.flipTimer > 0) { l = k[this.controls.right]; r = k[this.controls.left]; }
+
+                if (l) { this.dx -= this.moveSpeed; this.dir = -1; }
+                if (r) { this.dx += this.moveSpeed; this.dir = 1; }
+                
+                if (k[this.controls.up] && !this.isPink) {
+                    if (this.grounded) { this.dy = this.jumpPower; this.jumpCount = 1; keys[this.controls.up] = false; } 
+                    else if ((this.isStriker || this.isGunner || this.isVampire || this.isTimeslip) && this.jumpCount < 3) { this.dy = this.jumpPower * 0.8; this.jumpCount++; keys[this.controls.up] = false; for(let i=0;i<8;i++) particles.push({ x: this.x+this.w/2, y: this.y+this.h, dx: (Math.random()-0.5)*8, dy: Math.random()*5, life: 15, c: "#fff" }); }
+                    else if ((this.isOrbit || this.isJump) && this.jumpCount < (this.isJump?5:2)) { this.dy = this.jumpPower * 0.8; this.jumpCount++; keys[this.controls.up] = false; for(let i=0;i<8;i++) particles.push({ x: this.x+this.w/2, y: this.y+this.h, dx: (Math.random()-0.5)*8, dy: Math.random()*5, life: 15, c: "#fff" }); }
+                } else if (k[this.controls.up] && this.isPink) {
+                    const atkK = k[this.controls.attack] || k['Digit1'] || k['Numpad1'];
+                    if (!atkK && this.grounded) { this.dy = this.jumpPower; this.jumpCount = 1; keys[this.controls.up] = false; }
+                }
+                if (this.isStriker && k[this.controls.down] && this.shieldTimer === 0 && this.shieldActive === 0 && this.cd === 0) this.shieldTimer = 30; 
+                const atkK = k[this.controls.attack] || k['Digit1'] || k['Numpad1'];
+                if (atkK) {
+                    if (this.grabbedTarget && this.justGrabbed === 0) { this.executeThrow(); keys[this.controls.attack] = false; keys['Digit1'] = false; keys['Numpad1'] = false; } 
+                    else if (this.cd === 0 && !this.grabbedTarget) this.performAttack(null, k);
+                }
+            }
+
+            aiLogic() {
+                const t = players.find(p => p.id !== this.id); if (!t || !gameActive) return;
+                const isOff = this.x < 100 || this.x > 700 || this.y > 400; const tIsOff = t.x < 100 || t.x > 700 || t.y > 400;
+                if (isOff && !this.grounded) { this.dx += (this.x < 400 ? 1.5 : -1.5); if (this.dy > 0) { if (this.jumpCount < 3 && (this.isStriker || this.isGunner || this.isVampire || this.isTimeslip)) { this.dy = this.jumpPower * 0.8; this.jumpCount++; } else if (this.isOrbit && this.jumpCount < 2) { this.dy = this.jumpPower * 0.8; this.jumpCount++; } else if (this.isNinja && this.ninjaAtkCount < 2 && this.cd === 0) this.performAttack(); else if (!this.isNinja && Math.random() < 0.2) this.dy = this.jumpPower * 0.7; } return; }
+                if (this.grabbedTarget) { if (this.justGrabbed > 0) this.justGrabbed--; if (this.justGrabbed === 0 && Math.random() < 0.05) this.executeThrow(); this.dx += (this.dir * this.moveSpeed); if (Math.random() < 0.02) this.dir *= -1; if (this.grounded && Math.random() < 0.02) this.dy = this.jumpPower; return; }
+                let dgr = false; let cObj = null; let mD = 1000; const chkD = (ox, oy, dr) => { const d = Math.hypot(ox - (this.x+this.w/2), oy - (this.y+this.h/2)); if (d < dr && d < mD) { dgr = true; mD = d; cObj = {x:ox, y:oy}; } };
+                bullets.forEach(b => { if(b.owner!==this.id) chkD(b.x, b.y, 80); }); bombs.forEach(b => chkD(b.x+b.w/2, b.y+b.h/2, 100)); boomerangs.forEach(b => { if(b.owner!==this.id) chkD(b.x, b.y, 80); }); thunders.forEach(td => { if(td.owner!==this.id) chkD(td.x+td.w/2, td.y+td.h/2, 60); });
+                const dist = Math.abs(t.x - this.x); const yDist = t.y - this.y; if (t.isAtk && dist < 120 && Math.abs(yDist) < 50) chkD(t.x+t.w/2, t.y+t.h/2, 120);
+                if (dgr) { if (this.isStriker && this.shieldTimer === 0 && this.shieldActive === 0 && dist < 80) { this.shieldTimer = 30; } else { if (this.grounded && Math.random() < 0.6) { this.dy = this.jumpPower; this.jumpCount = 1; } else { this.dx += (this.x > cObj.x ? 1.5 : -1.5); } } return; }
+                const rAtk = { striker: 65, gunner: 400, laser: 500, bomber: 150, titan: 120, ninja: 60, grappler: 65, thunder: 80, boomerang: 200, pink: 45, wind: 30, ice: 400, magma: 65, blade: 85, slime: 300, meteor: 80, battery: 65, drill: 60, pulse: 90, orbit: 100, gravity: 65, quake: 200, phantom: 100, acid: 80, mirror: 100, spark: 400, drone: 300, glitch: 100, void: 65, burst: 40, remote: 150, command: 80, shadow: 400, lagger: 60, uithief: 60, director: 60, flipper: 60, grav_master: 60, painter: 400, magnet: 60, ice_run: 200, portal: 400, gambler: 60, reflector: 100, timebomb: 40, sizer: 60, vampire: 50, cursor: 300, ghost_p: 100, illusion: 80, dancer: 60, evo_slime: 60, copycat: 50, paper: 300, turtle: 80, zombie: 200, squid: 60, present: 100, silencer: 60, error: 400, timeslip: 300 }; 
+                const idealDist = rAtk[this.type] || 60;
+                if (tIsOff && !isOff && this.grounded) { const edgeX = t.x < 400 ? 150 : 650; if (Math.abs(this.x - edgeX) > 30) { this.dx += (this.x < edgeX ? this.moveSpeed * 1.2 : -this.moveSpeed * 1.2); this.dir = this.x < edgeX ? 1 : -1; } else { this.dir = t.x < 400 ? -1 : 1; this.dx *= 0.5; if (dist < idealDist && this.cd === 0) this.performAttack(); } } 
+                else { if (!t.grounded && t.y < this.y - 40 && dist < 100 && this.grounded && Math.random() < 0.8) { this.dy = this.jumpPower; this.jumpCount = 1; } if (dist > idealDist + 20) { this.dx += (t.x > this.x ? this.moveSpeed * 1.3 : -this.moveSpeed * 1.3); this.dir = t.x > this.x ? 1 : -1; if (this.grounded && Math.random() < 0.05) { this.dy = this.jumpPower * 0.6; this.jumpCount = 1; } } else if (dist < idealDist - 20 && !this.isGrappler && !this.isPink && !this.isWind) { this.dx += (t.x > this.x ? -this.moveSpeed : this.moveSpeed); this.dir = t.x > this.x ? 1 : -1; } else { this.dir = t.x > this.x ? 1 : -1; if (Math.random() < 0.1) this.dx += (Math.random() < 0.5 ? this.moveSpeed : -this.moveSpeed); } }
+                if (this.isMeteor && t.y > this.y && dist < 40 && !this.grounded && this.cd === 0) this.performAttack();
+                if (this.cd === 0) {
+                    if (this.isThunder) { if (dist < 60 && t.y < this.y + 50) this.performAttack(); } 
+                    else if (this.isPink || this.isCommand || this.isTimeslip) { if (dist < (this.isTimeslip ? 300 : 45)) { if (t.y < this.y - 20) keys[this.controls.up] = true; else if (t.y > this.y + 20 && !this.isTimeslip) keys[this.controls.down] = true; this.performAttack(null, keys); keys[this.controls.up] = false; keys[this.controls.down] = false; } } 
+                    else if (this.isQuake) { if (t.grounded) this.performAttack(); } 
+                    else if (this.isDrill || this.isBlade) { if (dist < idealDist * 1.2 && Math.random() < 0.7) this.performAttack(); } 
+                    else if (this.isRemote) { const mb = bombs.find(b => b.owner === this.id && b.remote && !b.exploded); if (mb) { if (Math.hypot(t.x+t.w/2 - (mb.x+mb.w/2), t.y+t.h/2 - (mb.y+mb.h/2)) < 70) this.performAttack(); } else if (dist < idealDist && dist > 50 && Math.random() < 0.8) { this.performAttack(); } } 
+                    else if (dist < idealDist) { if (t.shieldActive > 0 && !this.isGrappler) { if (Math.random() < 0.2) this.performAttack(); } else { if (Math.random() < 0.8) this.performAttack(); } }
+                }
+            }
+
             performAttack(oType = null, k = keys) {
                 this.isAtk = true; const t = players.find(p => p.id !== this.id); const aType = oType || this.type;
                 if (aType === 'glitch') { this.cd = 30; const s = ['striker', 'gunner', 'laser', 'bomber', 'ninja', 'grappler', 'thunder', 'boomerang', 'pink', 'wind', 'ice', 'magma', 'blade', 'slime', 'meteor', 'drill', 'pulse', 'orbit', 'gravity', 'quake', 'phantom', 'acid', 'spark', 'drone', 'void', 'timeslip', 'lagger', 'uithief', 'director', 'flipper', 'grav_master', 'painter', 'magnet', 'ice_run', 'portal', 'gambler', 'reflector', 'timebomb', 'sizer', 'vampire', 'cursor', 'ghost_p', 'command', 'illusion', 'dancer', 'evo_slime', 'copycat', 'paper', 'turtle', 'zombie', 'squid', 'present', 'silencer', 'shadow', 'error']; for(let i=0;i<10;i++) particles.push({x:this.x+Math.random()*this.w,y:this.y+Math.random()*this.h,dx:0,dy:0,life:10,c:"#475569"}); this.performAttack(s[Math.floor(Math.random() * s.length)]); return; }
